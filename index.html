@@ -1,6 +1,4 @@
-from pathlib import Path
-
-html = r"""<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -200,6 +198,23 @@ html = r"""<!DOCTYPE html>
 
   <main>
     <section>
+      <h2>Login</h2>
+      <label for="email">Email</label>
+      <input id="email" type="email" placeholder="name@example.com" autocomplete="email" />
+
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+
+      <div class="actions">
+        <button type="button" onclick="signIn()">Log In</button>
+        <button class="secondary" type="button" onclick="signUp()">Create Account</button>
+        <button class="secondary full" type="button" onclick="signOut()">Log Out</button>
+      </div>
+
+      <div class="status" id="authStatus">Not logged in.</div>
+    </section>
+
+    <section>
       <h2>Sample Info</h2>
 
       <label for="collector">Collector</label>
@@ -292,24 +307,73 @@ html = r"""<!DOCTYPE html>
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    const SUPABASE_URL = "https://qvmgrchkmmezpwhlfxjv.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_3M-2qrVCnjO9XfjsBCUf6g_l1wSuwVu";
+    const STORAGE_BUCKET = "ecoexposure_images";
+    const TABLE_NAME = "samples"; // Change to "samples" if that is what you named your table.
+
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
     const entries = [];
     let latitude = "";
     let longitude = "";
+    let currentUser = null;
 
     const imageSlots = {
       topImage: "top",
       sideImage: "side",
-      closeUpImage: "closeUp",
+      closeUpImage: "closeup",
       otherImage: "other"
     };
+
+    async function checkAuth() {
+      const { data } = await supabaseClient.auth.getUser();
+      currentUser = data.user || null;
+      document.getElementById("authStatus").textContent = currentUser
+        ? `Logged in as ${currentUser.email}`
+        : "Not logged in.";
+    }
+
+    async function signUp() {
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      document.getElementById("authStatus").textContent = error
+        ? `Sign-up error: ${error.message}`
+        : "Account created. Check email if confirmation is required, then log in.";
+      await checkAuth();
+    }
+
+    async function signIn() {
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      document.getElementById("authStatus").textContent = error
+        ? `Login error: ${error.message}`
+        : `Logged in as ${data.user.email}`;
+      await checkAuth();
+    }
+
+    async function signOut() {
+      await supabaseClient.auth.signOut();
+      currentUser = null;
+      document.getElementById("authStatus").textContent = "Logged out.";
+    }
 
     function sanitizeForFilename(input) {
       return String(input || "")
         .trim()
         .replace(/\s+/g, "")
-        .replace(/[\/:,]/g, "-")
+        .replace(/[\\/:,]/g, "-")
         .replace(/[^a-zA-Z0-9._-]/g, "");
+    }
+
+    function todayFolderName() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     }
 
     function timestampString() {
@@ -320,40 +384,29 @@ html = r"""<!DOCTYPE html>
 
     function captureGPS() {
       const box = document.getElementById("gpsStatus");
-
       if (!navigator.geolocation) {
         box.textContent = "GPS not supported in this browser.";
         return;
       }
-
       box.textContent = "Requesting GPS location...";
-
       navigator.geolocation.getCurrentPosition(
         position => {
           latitude = position.coords.latitude;
           longitude = position.coords.longitude;
           box.textContent = `Latitude: ${latitude} | Longitude: ${longitude}`;
         },
-        error => {
-          box.textContent = `GPS error: ${error.message}`;
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        }
+        error => { box.textContent = `GPS error: ${error.message}`; },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
 
     function previewImage(inputID, previewID) {
       const input = document.getElementById(inputID);
       const preview = document.getElementById(previewID);
-
       if (!input.files || !input.files[0]) {
         preview.style.display = "none";
         return;
       }
-
       const reader = new FileReader();
       reader.onload = e => {
         preview.src = e.target.result;
@@ -364,70 +417,106 @@ html = r"""<!DOCTYPE html>
 
     function filenameFor(slot, file) {
       if (!file) return "";
-
       const collector = sanitizeForFilename(document.getElementById("collector").value || "UnknownCollector");
       const waterType = sanitizeForFilename(document.getElementById("waterType").value || "Other");
       const sampleID = sanitizeForFilename(document.getElementById("sampleID").value);
       const concentration = sanitizeForFilename(document.getElementById("concentration").value);
       const minutes = sanitizeForFilename(document.getElementById("minutesSincePowder").value);
       const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-
       return `EcoExposure_${slot}_${collector}_${waterType}_${sampleID}_${concentration}_${minutes}min_${timestampString()}.${ext}`;
     }
 
-    function getImageFilenames() {
-      const result = {};
+    async function uploadOneImage(inputID, slot) {
+      const input = document.getElementById(inputID);
+      const file = input.files && input.files[0] ? input.files[0] : null;
+      if (!file) return "";
 
-      Object.entries(imageSlots).forEach(([inputID, slot]) => {
-        const input = document.getElementById(inputID);
-        const file = input.files && input.files[0] ? input.files[0] : null;
-        result[slot] = filenameFor(slot, file);
-      });
+      const folder = todayFolderName();
+      const userFolder = currentUser ? currentUser.id : "anonymous";
+      const filename = filenameFor(slot, file);
+      const path = `${userFolder}/${folder}/${filename}`;
 
-      return result;
+      const { error } = await supabaseClient.storage
+        .from(STORAGE_BUCKET)
+        .upload(path, file, { cacheControl: "3600", upsert: false });
+
+      if (error) throw new Error(`${slot} upload failed: ${error.message}`);
+      return path;
     }
 
-    function saveEntry() {
+    async function saveEntry() {
+      const status = document.getElementById("saveStatus");
+      await checkAuth();
+
+      if (!currentUser) {
+        status.textContent = "Please log in before saving.";
+        return;
+      }
+
       const sampleID = document.getElementById("sampleID").value.trim();
       const concentration = document.getElementById("concentration").value.trim();
-
       const hasImage = Object.keys(imageSlots).some(inputID => {
         const input = document.getElementById(inputID);
         return input.files && input.files.length > 0;
       });
 
       if (!sampleID || !concentration || !hasImage) {
-        document.getElementById("saveStatus").textContent =
-          "Required: Sample ID, Concentration, and at least one image.";
+        status.textContent = "Required: Sample ID, Concentration, and at least one image.";
         return;
       }
 
-      const imageNames = getImageFilenames();
+      try {
+        status.textContent = "Uploading photos...";
 
-      const entry = {
-        collector: document.getElementById("collector").value,
-        location: document.getElementById("location").value,
-        waterType: document.getElementById("waterType").value,
-        latitude,
-        longitude,
-        sampleID,
-        polymer: "mixed",
-        concentration,
-        minutesSincePowder: document.getElementById("minutesSincePowder").value,
-        timestamp: new Date().toISOString(),
-        top: imageNames.top,
-        side: imageNames.side,
-        closeUp: imageNames.closeUp,
-        other: imageNames.other,
-        note: document.getElementById("notes").value
-      };
+        const top_photo = await uploadOneImage("topImage", "top");
+        const side_photo = await uploadOneImage("sideImage", "side");
+        const closeup_photo = await uploadOneImage("closeUpImage", "closeUp");
+        const other_photo = await uploadOneImage("otherImage", "other");
 
-      entries.push(entry);
-      updateSampleList();
-      previewCSV();
+        status.textContent = "Saving database record...";
 
-      document.getElementById("saveStatus").textContent =
-        `Saved entry ${entries.length}: ${sampleID}`;
+        const entry = {
+          user_id: currentUser.id,
+          collector: document.getElementById("collector").value,
+          location: document.getElementById("location").value,
+          water_type: document.getElementById("waterType").value,
+          latitude: latitude === "" ? null : Number(latitude),
+          longitude: longitude === "" ? null : Number(longitude),
+          sample_id: sampleID,
+          concentration: concentration,
+          minutes_since_powder: document.getElementById("minutesSincePowder").value,
+          top_photo,
+          side_photo,
+          closeup_photo,
+          other_photo,
+          notes: document.getElementById("notes").value
+        };
+
+        const { error } = await supabaseClient
+          .from(TABLE_NAME)
+          .insert(entry);
+
+        if (error) throw new Error(`Database save failed: ${error.message}`);
+
+        entries.push({
+          ...entry,
+          timestamp: new Date().toISOString(),
+          top: top_photo,
+          side: side_photo,
+          closeUp: closeup_photo,
+          other: other_photo,
+          note: entry.notes,
+          waterType: entry.water_type,
+          minutesSincePowder: entry.minutes_since_powder,
+          sampleID: entry.sample_id
+        });
+
+        updateSampleList();
+        previewCSV();
+        status.textContent = `Saved to Supabase: ${sampleID}`;
+      } catch (err) {
+        status.textContent = err.message;
+      }
     }
 
     function csvEscape(value) {
@@ -440,33 +529,16 @@ html = r"""<!DOCTYPE html>
 
     function makeCSV() {
       const header = [
-        "collector",
-        "location",
-        "waterType",
-        "latitude",
-        "longitude",
-        "sampleID",
-        "polymer",
-        "concentration",
-        "minutesSincePowder",
-        "timestamp",
-        "top",
-        "side",
-        "closeUp",
-        "other",
-        "note"
+        "collector", "location", "water_type", "latitude", "longitude", "sample_id",
+        "concentration", "minutes_since_powder", "top_photo", "side_photo",
+        "closeup_photo", "other_photo", "notes"
       ];
-
-      const rows = entries.map(e =>
-        header.map(key => csvEscape(e[key])).join(",")
-      );
-
+      const rows = entries.map(e => header.map(key => csvEscape(e[key])).join(","));
       return [header.join(","), ...rows].join("\n");
     }
 
     function previewCSV() {
-      document.getElementById("csvPreview").textContent =
-        entries.length ? makeCSV() : "No saved entries yet.";
+      document.getElementById("csvPreview").textContent = entries.length ? makeCSV() : "No saved entries yet.";
     }
 
     function downloadCSV() {
@@ -474,7 +546,6 @@ html = r"""<!DOCTYPE html>
         document.getElementById("saveStatus").textContent = "Save at least one entry before downloading CSV.";
         return;
       }
-
       const blob = new Blob([makeCSV()], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -487,26 +558,17 @@ html = r"""<!DOCTYPE html>
     function updateSampleList() {
       const list = document.getElementById("sampleList");
       list.innerHTML = "";
-
       entries.forEach(e => {
         const li = document.createElement("li");
-        li.textContent = `${e.sampleID} — ${e.waterType} — ${e.location || "No location"} — ${e.timestamp}`;
+        li.textContent = `${e.sample_id} — ${e.water_type} — ${e.location || "No location"}`;
         list.appendChild(li);
       });
     }
 
     function clearDraft() {
-      [
-        "collector",
-        "location",
-        "sampleID",
-        "concentration",
-        "minutesSincePowder",
-        "notes"
-      ].forEach(id => document.getElementById(id).value = "");
-
+      ["collector", "location", "sampleID", "concentration", "minutesSincePowder", "notes"]
+        .forEach(id => document.getElementById(id).value = "");
       document.getElementById("waterType").value = "Other";
-
       Object.entries({
         topImage: "topPreview",
         sideImage: "sidePreview",
@@ -518,18 +580,13 @@ html = r"""<!DOCTYPE html>
         preview.src = "";
         preview.style.display = "none";
       });
-
       latitude = "";
       longitude = "";
       document.getElementById("gpsStatus").textContent = "No GPS location captured yet.";
       document.getElementById("saveStatus").textContent = "Draft cleared.";
     }
+
+    checkAuth();
   </script>
 </body>
 </html>
-"""
-
-path = Path("/mnt/data/ec/exposure_capture_webapp.html".replace("/ec/", "/eco"))
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(html, encoding="utf-8")
-path.as_posix()
