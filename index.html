@@ -260,25 +260,25 @@
 
       <div class="image-slot">
         <strong>Top View</strong>
-        <input id="topImage" type="file" accept="image/*" capture="environment" onchange="previewImage('topImage','topPreview')" />
+        <input id="topImage" type="file" accept="image/*" onchange="previewImage('topImage','topPreview')" />
         <img id="topPreview" class="preview" alt="Top view preview" />
       </div>
 
       <div class="image-slot">
         <strong>Side View</strong>
-        <input id="sideImage" type="file" accept="image/*" capture="environment" onchange="previewImage('sideImage','sidePreview')" />
+        <input id="sideImage" type="file" accept="image/*" onchange="previewImage('sideImage','sidePreview')" />
         <img id="sidePreview" class="preview" alt="Side view preview" />
       </div>
 
       <div class="image-slot">
         <strong>Close-Up</strong>
-        <input id="closeUpImage" type="file" accept="image/*" capture="environment" onchange="previewImage('closeUpImage','closeUpPreview')" />
+        <input id="closeUpImage" type="file" accept="image/*" onchange="previewImage('closeUpImage','closeUpPreview')" />
         <img id="closeUpPreview" class="preview" alt="Close-up preview" />
       </div>
 
       <div class="image-slot">
         <strong>Other</strong>
-        <input id="otherImage" type="file" accept="image/*" capture="environment" onchange="previewImage('otherImage','otherPreview')" />
+        <input id="otherImage" type="file" accept="image/*" onchange="previewImage('otherImage','otherPreview')" />
         <img id="otherPreview" class="preview" alt="Other preview" />
       </div>
     </section>
@@ -312,7 +312,7 @@
     const SUPABASE_URL = "https://qvmgrchkmmezpwhlfxjv.supabase.co";
     const SUPABASE_KEY = "sb_publishable_3M-2qrVCnjO9XfjsBCUf6g_l1wSuwVu";
     const STORAGE_BUCKET = "ecoexposure_images";
-    const TABLE_NAME = "samples"; // Change to "samples" if that is what you named your table.
+    const TABLE_NAME = "capture_entries"; // Change to "samples" if that is what you named your table.
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -513,7 +513,7 @@
 
         updateSampleList();
         previewCSV();
-        status.textContent = `Saved to Supabase: ${sampleID}`;
+        status.textContent = `✅ Saved to Supabase: ${sampleID}. Photos uploaded and database row inserted.`;
       } catch (err) {
         status.textContent = err.message;
       }
