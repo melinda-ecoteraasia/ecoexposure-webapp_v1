@@ -183,6 +183,19 @@
       padding-left: 18px;
     }
 
+    .top-nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .top-nav a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
     @media (max-width: 640px) {
       .row, .actions {
         grid-template-columns: 1fr;
@@ -197,6 +210,11 @@
   </header>
 
   <main>
+    <div class="top-nav">
+      <a href="./index.html">Capture App</a>
+      <a href="./gallery.html">View My Gallery →</a>
+    </div>
+
     <section>
       <h2>Login</h2>
       <label for="email">Email</label>
@@ -288,8 +306,8 @@
 
       <div class="actions">
         <button class="full" type="button" onclick="saveEntry()">Save Entry</button>
-        <button class="secondary" type="button" onclick="previewCSV()">Preview Capture CSV</button>
-        <button class="secondary" type="button" onclick="downloadCSV()">Download Capture CSV</button>
+        <button class="secondary" type="button" onclick="previewCSV()">Preview Full CSV Log</button>
+        <button class="secondary" type="button" onclick="downloadCSV()">Download Full CSV Log</button>
         <button class="secondary full" type="button" onclick="clearDraft()">Clear Current Draft</button>
       </div>
 
@@ -527,32 +545,74 @@
       return text;
     }
 
-    function makeCSV() {
+    function makeCSV(rowsSource = entries) {
       const header = [
-        "collector", "location", "water_type", "latitude", "longitude", "sample_id",
-        "concentration", "minutes_since_powder", "top_photo", "side_photo",
-        "closeup_photo", "other_photo", "notes"
+        "id", "created_at", "user_id", "collector", "location", "water_type",
+        "latitude", "longitude", "sample_id", "concentration", "minutes_since_powder",
+        "top_photo", "side_photo", "closeup_photo", "other_photo", "notes"
       ];
-      const rows = entries.map(e => header.map(key => csvEscape(e[key])).join(","));
+      const rows = rowsSource.map(e => header.map(key => csvEscape(e[key])).join(","));
       return [header.join(","), ...rows].join("\n");
     }
 
-    function previewCSV() {
-      document.getElementById("csvPreview").textContent = entries.length ? makeCSV() : "No saved entries yet.";
+    async function fetchFullLog() {
+      await checkAuth();
+
+      if (!currentUser) {
+        throw new Error("Log in before previewing or downloading the full CSV log.");
+      }
+
+      const { data, error } = await supabaseClient
+        .from(TABLE_NAME)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw new Error("Could not load full CSV log: " + error.message);
+      }
+
+      return data || [];
     }
 
-    function downloadCSV() {
-      if (!entries.length) {
-        document.getElementById("saveStatus").textContent = "Save at least one entry before downloading CSV.";
-        return;
+    async function previewCSV() {
+      const preview = document.getElementById("csvPreview");
+      const status = document.getElementById("saveStatus");
+
+      try {
+        preview.textContent = "Loading full CSV log from Supabase...";
+        const rows = await fetchFullLog();
+        preview.textContent = rows.length ? makeCSV(rows) : "No saved entries found in Supabase yet.";
+        status.textContent = `Preview loaded ${rows.length} saved sample(s) from Supabase.`;
+      } catch (err) {
+        preview.textContent = err.message;
+        status.textContent = err.message;
       }
-      const blob = new Blob([makeCSV()], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `eco_exposure_log_${timestampString()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+    }
+
+    async function downloadCSV() {
+      const status = document.getElementById("saveStatus");
+
+      try {
+        status.textContent = "Loading full CSV log from Supabase...";
+        const rows = await fetchFullLog();
+
+        if (!rows.length) {
+          status.textContent = "No saved entries found in Supabase yet.";
+          return;
+        }
+
+        const blob = new Blob([makeCSV(rows)], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `eco_exposure_full_log_${timestampString()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        status.textContent = `Downloaded ${rows.length} saved sample(s) from Supabase.`;
+      } catch (err) {
+        status.textContent = err.message;
+      }
     }
 
     function updateSampleList() {
