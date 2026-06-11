@@ -1,0 +1,535 @@
+from pathlib import Path
+
+html = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EcoExposure Capture Webapp</title>
+  <style>
+    :root {
+      --bg: #f6f8f7;
+      --card: #ffffff;
+      --text: #1f2933;
+      --muted: #6b7280;
+      --border: #d7ded9;
+      --accent: #0f766e;
+      --accent-dark: #115e59;
+      --danger: #b91c1c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      padding: 22px 16px;
+      background: linear-gradient(135deg, #0f766e, #164e63);
+      color: white;
+    }
+
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 1.45rem;
+    }
+
+    header p {
+      margin: 0;
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+
+    h2 {
+      font-size: 1.05rem;
+      margin: 0 0 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.88rem;
+      font-weight: 600;
+      margin: 12px 0 5px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 1rem;
+      background: white;
+    }
+
+    textarea {
+      min-height: 78px;
+      resize: vertical;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .gps-box {
+      margin-top: 10px;
+      padding: 10px;
+      background: #eef7f5;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .image-slot {
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      background: #fbfcfb;
+    }
+
+    .image-slot strong {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .preview {
+      display: none;
+      margin-top: 10px;
+      max-height: 180px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 0.98rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--accent);
+      color: white;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background: var(--accent-dark);
+    }
+
+    button.secondary {
+      background: #e5e7eb;
+      color: #1f2933;
+    }
+
+    button.secondary:hover {
+      background: #d1d5db;
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      overflow-x: auto;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+    }
+
+    .sample-list {
+      font-size: 0.92rem;
+      color: var(--muted);
+      padding-left: 18px;
+    }
+
+    @media (max-width: 640px) {
+      .row, .actions {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>EcoExposure Capture Entry</h1>
+    <p>Internal field data-collection webapp prototype</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Sample Info</h2>
+
+      <label for="collector">Collector</label>
+      <input id="collector" placeholder="Collector name" />
+
+      <label for="location">Location</label>
+      <input id="location" placeholder="Site, city, or notes" />
+
+      <label for="waterType">Water Type</label>
+      <select id="waterType">
+        <option>Tap</option>
+        <option>River</option>
+        <option>Lake</option>
+        <option>Bay</option>
+        <option>Ocean</option>
+        <option>Brackish</option>
+        <option selected>Other</option>
+      </select>
+
+      <button type="button" onclick="captureGPS()">Capture GPS Location</button>
+      <div class="gps-box" id="gpsStatus">No GPS location captured yet.</div>
+
+      <div class="row">
+        <div>
+          <label for="sampleID">Sample ID</label>
+          <input id="sampleID" placeholder="Example: SG_TAP_001" />
+        </div>
+        <div>
+          <label for="concentration">Concentration</label>
+          <input id="concentration" placeholder="Unknown / spike value" />
+        </div>
+      </div>
+
+      <label for="minutesSincePowder">Minutes since powder</label>
+      <input id="minutesSincePowder" inputmode="numeric" placeholder="30, 45, 60..." />
+
+      <label for="notes">Notes</label>
+      <textarea id="notes" placeholder="Sample conditions, dilution, visual observations..."></textarea>
+    </section>
+
+    <section>
+      <h2>Images</h2>
+
+      <div class="image-slot">
+        <strong>Top View</strong>
+        <input id="topImage" type="file" accept="image/*" capture="environment" onchange="previewImage('topImage','topPreview')" />
+        <img id="topPreview" class="preview" alt="Top view preview" />
+      </div>
+
+      <div class="image-slot">
+        <strong>Side View</strong>
+        <input id="sideImage" type="file" accept="image/*" capture="environment" onchange="previewImage('sideImage','sidePreview')" />
+        <img id="sidePreview" class="preview" alt="Side view preview" />
+      </div>
+
+      <div class="image-slot">
+        <strong>Close-Up</strong>
+        <input id="closeUpImage" type="file" accept="image/*" capture="environment" onchange="previewImage('closeUpImage','closeUpPreview')" />
+        <img id="closeUpPreview" class="preview" alt="Close-up preview" />
+      </div>
+
+      <div class="image-slot">
+        <strong>Other</strong>
+        <input id="otherImage" type="file" accept="image/*" capture="environment" onchange="previewImage('otherImage','otherPreview')" />
+        <img id="otherPreview" class="preview" alt="Other preview" />
+      </div>
+    </section>
+
+    <section>
+      <h2>Actions</h2>
+
+      <div class="actions">
+        <button class="full" type="button" onclick="saveEntry()">Save Entry</button>
+        <button class="secondary" type="button" onclick="previewCSV()">Preview Capture CSV</button>
+        <button class="secondary" type="button" onclick="downloadCSV()">Download Capture CSV</button>
+        <button class="secondary full" type="button" onclick="clearDraft()">Clear Current Draft</button>
+      </div>
+
+      <div class="status" id="saveStatus">No entries saved yet.</div>
+    </section>
+
+    <section>
+      <h2>Saved Samples</h2>
+      <ol class="sample-list" id="sampleList"></ol>
+    </section>
+
+    <section>
+      <h2>CSV Preview</h2>
+      <pre id="csvPreview">No CSV generated yet.</pre>
+    </section>
+  </main>
+
+  <script>
+    const entries = [];
+    let latitude = "";
+    let longitude = "";
+
+    const imageSlots = {
+      topImage: "top",
+      sideImage: "side",
+      closeUpImage: "closeUp",
+      otherImage: "other"
+    };
+
+    function sanitizeForFilename(input) {
+      return String(input || "")
+        .trim()
+        .replace(/\s+/g, "")
+        .replace(/[\/:,]/g, "-")
+        .replace(/[^a-zA-Z0-9._-]/g, "");
+    }
+
+    function timestampString() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+    }
+
+    function captureGPS() {
+      const box = document.getElementById("gpsStatus");
+
+      if (!navigator.geolocation) {
+        box.textContent = "GPS not supported in this browser.";
+        return;
+      }
+
+      box.textContent = "Requesting GPS location...";
+
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          latitude = position.coords.latitude;
+          longitude = position.coords.longitude;
+          box.textContent = `Latitude: ${latitude} | Longitude: ${longitude}`;
+        },
+        error => {
+          box.textContent = `GPS error: ${error.message}`;
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    }
+
+    function previewImage(inputID, previewID) {
+      const input = document.getElementById(inputID);
+      const preview = document.getElementById(previewID);
+
+      if (!input.files || !input.files[0]) {
+        preview.style.display = "none";
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        preview.src = e.target.result;
+        preview.style.display = "block";
+      };
+      reader.readAsDataURL(input.files[0]);
+    }
+
+    function filenameFor(slot, file) {
+      if (!file) return "";
+
+      const collector = sanitizeForFilename(document.getElementById("collector").value || "UnknownCollector");
+      const waterType = sanitizeForFilename(document.getElementById("waterType").value || "Other");
+      const sampleID = sanitizeForFilename(document.getElementById("sampleID").value);
+      const concentration = sanitizeForFilename(document.getElementById("concentration").value);
+      const minutes = sanitizeForFilename(document.getElementById("minutesSincePowder").value);
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+
+      return `EcoExposure_${slot}_${collector}_${waterType}_${sampleID}_${concentration}_${minutes}min_${timestampString()}.${ext}`;
+    }
+
+    function getImageFilenames() {
+      const result = {};
+
+      Object.entries(imageSlots).forEach(([inputID, slot]) => {
+        const input = document.getElementById(inputID);
+        const file = input.files && input.files[0] ? input.files[0] : null;
+        result[slot] = filenameFor(slot, file);
+      });
+
+      return result;
+    }
+
+    function saveEntry() {
+      const sampleID = document.getElementById("sampleID").value.trim();
+      const concentration = document.getElementById("concentration").value.trim();
+
+      const hasImage = Object.keys(imageSlots).some(inputID => {
+        const input = document.getElementById(inputID);
+        return input.files && input.files.length > 0;
+      });
+
+      if (!sampleID || !concentration || !hasImage) {
+        document.getElementById("saveStatus").textContent =
+          "Required: Sample ID, Concentration, and at least one image.";
+        return;
+      }
+
+      const imageNames = getImageFilenames();
+
+      const entry = {
+        collector: document.getElementById("collector").value,
+        location: document.getElementById("location").value,
+        waterType: document.getElementById("waterType").value,
+        latitude,
+        longitude,
+        sampleID,
+        polymer: "mixed",
+        concentration,
+        minutesSincePowder: document.getElementById("minutesSincePowder").value,
+        timestamp: new Date().toISOString(),
+        top: imageNames.top,
+        side: imageNames.side,
+        closeUp: imageNames.closeUp,
+        other: imageNames.other,
+        note: document.getElementById("notes").value
+      };
+
+      entries.push(entry);
+      updateSampleList();
+      previewCSV();
+
+      document.getElementById("saveStatus").textContent =
+        `Saved entry ${entries.length}: ${sampleID}`;
+    }
+
+    function csvEscape(value) {
+      const text = String(value ?? "");
+      if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    }
+
+    function makeCSV() {
+      const header = [
+        "collector",
+        "location",
+        "waterType",
+        "latitude",
+        "longitude",
+        "sampleID",
+        "polymer",
+        "concentration",
+        "minutesSincePowder",
+        "timestamp",
+        "top",
+        "side",
+        "closeUp",
+        "other",
+        "note"
+      ];
+
+      const rows = entries.map(e =>
+        header.map(key => csvEscape(e[key])).join(",")
+      );
+
+      return [header.join(","), ...rows].join("\n");
+    }
+
+    function previewCSV() {
+      document.getElementById("csvPreview").textContent =
+        entries.length ? makeCSV() : "No saved entries yet.";
+    }
+
+    function downloadCSV() {
+      if (!entries.length) {
+        document.getElementById("saveStatus").textContent = "Save at least one entry before downloading CSV.";
+        return;
+      }
+
+      const blob = new Blob([makeCSV()], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `eco_exposure_log_${timestampString()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function updateSampleList() {
+      const list = document.getElementById("sampleList");
+      list.innerHTML = "";
+
+      entries.forEach(e => {
+        const li = document.createElement("li");
+        li.textContent = `${e.sampleID} — ${e.waterType} — ${e.location || "No location"} — ${e.timestamp}`;
+        list.appendChild(li);
+      });
+    }
+
+    function clearDraft() {
+      [
+        "collector",
+        "location",
+        "sampleID",
+        "concentration",
+        "minutesSincePowder",
+        "notes"
+      ].forEach(id => document.getElementById(id).value = "");
+
+      document.getElementById("waterType").value = "Other";
+
+      Object.entries({
+        topImage: "topPreview",
+        sideImage: "sidePreview",
+        closeUpImage: "closeUpPreview",
+        otherImage: "otherPreview"
+      }).forEach(([inputID, previewID]) => {
+        document.getElementById(inputID).value = "";
+        const preview = document.getElementById(previewID);
+        preview.src = "";
+        preview.style.display = "none";
+      });
+
+      latitude = "";
+      longitude = "";
+      document.getElementById("gpsStatus").textContent = "No GPS location captured yet.";
+      document.getElementById("saveStatus").textContent = "Draft cleared.";
+    }
+  </script>
+</body>
+</html>
+"""
+
+path = Path("/mnt/data/ec/exposure_capture_webapp.html".replace("/ec/", "/eco"))
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(html, encoding="utf-8")
+path.as_posix()
