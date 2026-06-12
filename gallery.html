@@ -185,7 +185,7 @@
         <button class="secondary" type="button" onclick="logout()">Log Out</button>
       </div>
 
-      <div class="status" id="authStatus">Checking login...</div>
+      <div class="status" id="authStatus">Log in here to view your gallery.</div>
     </section>
 
     <section>
@@ -222,45 +222,11 @@
     let currentUser = null;
     let loadedSamples = [];
 
-    async function init() {
-      await refreshUser();
-
-      supabase.auth.onAuthStateChange(async (_event, session) => {
-        currentUser = session?.user || null;
-        updateAuthStatus();
-        if (currentUser) await loadSamples();
-      });
-    }
-
-    async function refreshUser() {
-      const { data: sessionData } = await supabase.auth.getSession();
-      currentUser = sessionData.session?.user || null;
-
-      if (!currentUser) {
-        const { data: userData } = await supabase.auth.getUser();
-        currentUser = userData.user || null;
-      }
-
-      updateAuthStatus();
-
-      if (currentUser) {
-        await loadSamples();
-      } else {
-        document.getElementById("galleryStatus").textContent =
-          "Log in on this page to view your saved gallery.";
-      }
-    }
-
-    function updateAuthStatus() {
-      const status = document.getElementById("authStatus");
-      status.textContent = currentUser
-        ? "Logged in as " + currentUser.email
-        : "Not logged in. Enter your EcoExposure email and password here.";
-    }
-
     async function login() {
       const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
+
+      document.getElementById("authStatus").textContent = "Logging in...";
 
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -270,7 +236,7 @@
       }
 
       currentUser = data.user;
-      updateAuthStatus();
+      document.getElementById("authStatus").textContent = "Logged in as " + currentUser.email;
       await loadSamples();
     }
 
@@ -278,10 +244,24 @@
       await supabase.auth.signOut();
       currentUser = null;
       loadedSamples = [];
-      updateAuthStatus();
+      document.getElementById("authStatus").textContent = "Logged out.";
+      document.getElementById("galleryStatus").textContent = "No samples loaded yet.";
       document.getElementById("samplesContainer").innerHTML = "";
       document.getElementById("csvPreview").textContent = "No CSV loaded yet.";
-      document.getElementById("galleryStatus").textContent = "Logged out.";
+    }
+
+    async function ensureUser() {
+      if (currentUser) return currentUser;
+
+      const { data, error } = await supabase.auth.getUser();
+
+      if (!error && data && data.user) {
+        currentUser = data.user;
+        document.getElementById("authStatus").textContent = "Logged in as " + currentUser.email;
+        return currentUser;
+      }
+
+      throw new Error("Please log in on this Gallery page first.");
     }
 
     async function signedUrl(path) {
@@ -302,40 +282,29 @@
     }
 
     async function loadSamples() {
-      await refreshUserNoLoad();
+      const status = document.getElementById("galleryStatus");
 
-      if (!currentUser) {
-        document.getElementById("galleryStatus").textContent =
-          "Log in before loading your samples.";
-        return;
+      try {
+        await ensureUser();
+        status.textContent = "Loading samples...";
+
+        const { data, error } = await supabase
+          .from(TABLE_NAME)
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+
+        loadedSamples = data || [];
+        await renderSamples(loadedSamples);
+
+        document.getElementById("csvPreview").textContent =
+          loadedSamples.length ? makeCSV(loadedSamples) : "No saved entries found.";
+
+        status.textContent = "Loaded " + loadedSamples.length + " sample(s).";
+      } catch (err) {
+        status.textContent = err.message;
       }
-
-      document.getElementById("galleryStatus").textContent = "Loading samples...";
-
-      const { data, error } = await supabase
-        .from(TABLE_NAME)
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        document.getElementById("galleryStatus").textContent = "Load failed: " + error.message;
-        return;
-      }
-
-      loadedSamples = data || [];
-      await renderSamples(loadedSamples);
-
-      document.getElementById("csvPreview").textContent =
-        loadedSamples.length ? makeCSV(loadedSamples) : "No saved entries found.";
-
-      document.getElementById("galleryStatus").textContent =
-        "Loaded " + loadedSamples.length + " sample(s).";
-    }
-
-    async function refreshUserNoLoad() {
-      const { data: sessionData } = await supabase.auth.getSession();
-      currentUser = sessionData.session?.user || currentUser;
-      updateAuthStatus();
     }
 
     async function renderSamples(samples) {
@@ -415,7 +384,7 @@
     function csvEscape(value) {
       const text = String(value ?? "");
       if (text.includes(",") || text.includes('"') || text.includes("\n")) {
-        return `"${text.replace(/"/g, '""')}"`;
+        return '"' + text.replace(/"/g, '""') + '"';
       }
       return text;
     }
@@ -455,8 +424,6 @@
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
     }
-
-    init();
   </script>
 </body>
 </html>
