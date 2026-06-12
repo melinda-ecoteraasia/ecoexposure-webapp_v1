@@ -375,6 +375,30 @@
       await checkAuth();
     }
 
+
+    async function forgotPassword() {
+      const email = document.getElementById("email").value.trim();
+      const status = document.getElementById("authStatus");
+
+      if (!email) {
+        status.textContent = "Enter your email address first, then tap Forgot Password.";
+        return;
+      }
+
+      status.textContent = "Sending password reset email...";
+
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: "https://melinda-ecoteraasia.github.io/ecoexposure-webapp_v1/reset-password.html"
+      });
+
+      if (error) {
+        status.textContent = "Password reset failed: " + error.message;
+        return;
+      }
+
+      status.textContent = "Password reset email sent. Check your inbox/spam folder.";
+    }
+
     async function signOut() {
       await supabaseClient.auth.signOut();
       currentUser = null;
