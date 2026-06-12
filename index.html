@@ -469,6 +469,49 @@
       return `EcoExposure_${slot}_${collector}_${waterType}_${sampleID}_${concentration}_${minutes}min_${timestampString()}.${ext}`;
     }
 
+async function compressImage(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      const MAX_SIZE = 1080;
+
+      if (width > height && width > MAX_SIZE) {
+        height = height * (MAX_SIZE / width);
+        width = MAX_SIZE;
+      } else if (height > MAX_SIZE) {
+        width = width * (MAX_SIZE / height);
+        height = MAX_SIZE;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          resolve(
+            new File(
+              [blob],
+              file.name.replace(/\.[^/.]+$/, ".jpg"),
+              { type: "image/jpeg" }
+            )
+          );
+        },
+        "image/jpeg",
+        0.8
+      );
+    };
+
+    img.src = URL.createObjectURL(file);
+  });
+}
     async function uploadOneImage(inputID, slot) {
       const input = document.getElementById(inputID);
       const file = input.files && input.files[0] ? input.files[0] : null;
