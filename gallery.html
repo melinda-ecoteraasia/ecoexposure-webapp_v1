@@ -14,7 +14,6 @@
       --border: #d7ded9;
       --accent: #0f766e;
       --accent-dark: #115e59;
-      --danger: #b91c1c;
     }
     * { box-sizing: border-box; }
     body {
@@ -145,6 +144,15 @@
       font-weight: 700;
       text-decoration: none;
     }
+    pre {
+      white-space: pre-wrap;
+      overflow-x: auto;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+    }
     @media (max-width: 640px) {
       .actions { grid-template-columns: 1fr; }
       .sample-title { flex-direction: column; }
@@ -177,7 +185,7 @@
         <button class="secondary" type="button" onclick="logout()">Log Out</button>
       </div>
 
-      <div class="status" id="authStatus">Not logged in.</div>
+      <div class="status" id="authStatus">Checking login...</div>
     </section>
 
     <section>
@@ -190,6 +198,11 @@
     </section>
 
     <div id="samplesContainer"></div>
+
+    <section>
+      <h2>CSV Preview</h2>
+      <pre id="csvPreview">No CSV loaded yet.</pre>
+    </section>
   </main>
 
   <script>
@@ -198,26 +211,51 @@
     const TABLE_NAME = "samples";
     const BUCKET_NAME = "ecoexposure_images";
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    });
+
     let currentUser = null;
     let loadedSamples = [];
 
     async function init() {
-      const { data } = await supabase.auth.getSession();
-      currentUser = data.session?.user || null;
+      await refreshUser();
+
+      supabase.auth.onAuthStateChange(async (_event, session) => {
+        currentUser = session?.user || null;
+        updateAuthStatus();
+        if (currentUser) await loadSamples();
+      });
+    }
+
+    async function refreshUser() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      currentUser = sessionData.session?.user || null;
+
+      if (!currentUser) {
+        const { data: userData } = await supabase.auth.getUser();
+        currentUser = userData.user || null;
+      }
+
       updateAuthStatus();
+
       if (currentUser) {
         await loadSamples();
+      } else {
+        document.getElementById("galleryStatus").textContent =
+          "Log in on this page to view your saved gallery.";
       }
     }
 
     function updateAuthStatus() {
       const status = document.getElementById("authStatus");
-      if (currentUser) {
-        status.textContent = "Logged in as " + currentUser.email;
-      } else {
-        status.textContent = "Not logged in.";
-      }
+      status.textContent = currentUser
+        ? "Logged in as " + currentUser.email
+        : "Not logged in. Enter your EcoExposure email and password here.";
     }
 
     async function login() {
@@ -225,6 +263,7 @@
       const password = document.getElementById("password").value;
 
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
       if (error) {
         document.getElementById("authStatus").textContent = "Login failed: " + error.message;
         return;
@@ -241,35 +280,33 @@
       loadedSamples = [];
       updateAuthStatus();
       document.getElementById("samplesContainer").innerHTML = "";
+      document.getElementById("csvPreview").textContent = "No CSV loaded yet.";
       document.getElementById("galleryStatus").textContent = "Logged out.";
     }
 
     async function signedUrl(path) {
       if (!path) return null;
+
       const { data, error } = await supabase.storage
         .from(BUCKET_NAME)
         .createSignedUrl(path, 60 * 60);
 
-      if (error) {
-        console.warn("Signed URL error:", path, error.message);
-        return null;
-      }
-
+      if (error) return null;
       return data.signedUrl;
     }
 
     function displayDate(value) {
       if (!value) return "";
-      try {
-        return new Date(value).toLocaleString();
-      } catch {
-        return value;
-      }
+      try { return new Date(value).toLocaleString(); }
+      catch { return value; }
     }
 
     async function loadSamples() {
+      await refreshUserNoLoad();
+
       if (!currentUser) {
-        document.getElementById("galleryStatus").textContent = "Log in first.";
+        document.getElementById("galleryStatus").textContent =
+          "Log in before loading your samples.";
         return;
       }
 
@@ -288,8 +325,17 @@
       loadedSamples = data || [];
       await renderSamples(loadedSamples);
 
+      document.getElementById("csvPreview").textContent =
+        loadedSamples.length ? makeCSV(loadedSamples) : "No saved entries found.";
+
       document.getElementById("galleryStatus").textContent =
         "Loaded " + loadedSamples.length + " sample(s).";
+    }
+
+    async function refreshUserNoLoad() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      currentUser = sessionData.session?.user || currentUser;
+      updateAuthStatus();
     }
 
     async function renderSamples(samples) {
@@ -354,7 +400,7 @@
             photoCard.innerHTML = `
               <strong>${escapeHTML(label)}</strong>
               <small>${escapeHTML(path)}</small>
-              <div class="status">Could not create signed URL.</div>
+              <div class="status">Could not create image preview URL.</div>
             `;
           }
 
@@ -376,22 +422,9 @@
 
     function makeCSV(samples) {
       const header = [
-        "id",
-        "created_at",
-        "user_id",
-        "collector",
-        "location",
-        "water_type",
-        "latitude",
-        "longitude",
-        "sample_id",
-        "concentration",
-        "minutes_since_powder",
-        "top_photo",
-        "side_photo",
-        "closeup_photo",
-        "other_photo",
-        "notes"
+        "id", "created_at", "user_id", "collector", "location", "water_type",
+        "latitude", "longitude", "sample_id", "concentration", "minutes_since_powder",
+        "top_photo", "side_photo", "closeup_photo", "other_photo", "notes"
       ];
 
       const rows = samples.map(row => header.map(key => csvEscape(row[key])).join(","));
@@ -400,7 +433,8 @@
 
     function downloadCSV() {
       if (!loadedSamples.length) {
-        document.getElementById("galleryStatus").textContent = "Load samples before downloading CSV.";
+        document.getElementById("galleryStatus").textContent =
+          "Load samples before downloading CSV.";
         return;
       }
 
