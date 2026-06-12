@@ -74,7 +74,6 @@
     }
     button:hover, a.button:hover { background: var(--accent-dark); }
     button.secondary, a.secondary { background: #e5e7eb; color: #1f2933; }
-    button.secondary:hover, a.secondary:hover { background: #d1d5db; }
     .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -84,6 +83,17 @@
       margin-top: 10px;
       color: var(--muted);
       font-size: 0.95rem;
+    }
+    .top-nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .top-nav a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
     }
     .sample-title {
       display: flex;
@@ -122,27 +132,11 @@
       display: block;
       margin-bottom: 8px;
     }
-    .photo-card strong {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 0.92rem;
-    }
     .photo-card small {
       display: block;
       color: var(--muted);
       word-break: break-all;
       margin-bottom: 8px;
-    }
-    .top-nav {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
-    .top-nav a {
-      color: var(--accent);
-      font-weight: 700;
-      text-decoration: none;
     }
     pre {
       white-space: pre-wrap;
@@ -181,18 +175,18 @@
       <input id="password" type="password" placeholder="Password" />
 
       <div class="actions">
-        <button type="button" onclick="login()">Log In</button>
-        <button class="secondary" type="button" onclick="logout()">Log Out</button>
+        <button id="loginBtn" type="button">Log In + Load Gallery</button>
+        <button id="logoutBtn" class="secondary" type="button">Log Out</button>
       </div>
 
-      <div class="status" id="authStatus">Log in here to view your gallery.</div>
+      <div class="status" id="authStatus">Ready. Log in to view your gallery.</div>
     </section>
 
     <section>
       <h2>Gallery Actions</h2>
       <div class="actions">
-        <button type="button" onclick="loadSamples()">Load My Samples</button>
-        <button class="secondary" type="button" onclick="downloadCSV()">Download My CSV</button>
+        <button id="loadBtn" type="button">Load My Samples</button>
+        <button id="downloadBtn" class="secondary" type="button">Download My CSV</button>
       </div>
       <div class="status" id="galleryStatus">No samples loaded yet.</div>
     </section>
@@ -222,21 +216,34 @@
     let currentUser = null;
     let loadedSamples = [];
 
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("loginBtn").addEventListener("click", login);
+      document.getElementById("logoutBtn").addEventListener("click", logout);
+      document.getElementById("loadBtn").addEventListener("click", loadSamples);
+      document.getElementById("downloadBtn").addEventListener("click", downloadCSV);
+    });
+
     async function login() {
       const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
+      const authStatus = document.getElementById("authStatus");
 
-      document.getElementById("authStatus").textContent = "Logging in...";
+      if (!email || !password) {
+        authStatus.textContent = "Enter email and password first.";
+        return;
+      }
+
+      authStatus.textContent = "Logging in...";
 
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
       if (error) {
-        document.getElementById("authStatus").textContent = "Login failed: " + error.message;
+        authStatus.textContent = "Login failed: " + error.message;
         return;
       }
 
       currentUser = data.user;
-      document.getElementById("authStatus").textContent = "Logged in as " + currentUser.email;
+      authStatus.textContent = "Logged in as " + currentUser.email;
       await loadSamples();
     }
 
@@ -264,23 +271,6 @@
       throw new Error("Please log in on this Gallery page first.");
     }
 
-    async function signedUrl(path) {
-      if (!path) return null;
-
-      const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .createSignedUrl(path, 60 * 60);
-
-      if (error) return null;
-      return data.signedUrl;
-    }
-
-    function displayDate(value) {
-      if (!value) return "";
-      try { return new Date(value).toLocaleString(); }
-      catch { return value; }
-    }
-
     async function loadSamples() {
       const status = document.getElementById("galleryStatus");
 
@@ -296,15 +286,26 @@
         if (error) throw error;
 
         loadedSamples = data || [];
-        await renderSamples(loadedSamples);
-
         document.getElementById("csvPreview").textContent =
           loadedSamples.length ? makeCSV(loadedSamples) : "No saved entries found.";
+
+        await renderSamples(loadedSamples);
 
         status.textContent = "Loaded " + loadedSamples.length + " sample(s).";
       } catch (err) {
         status.textContent = err.message;
       }
+    }
+
+    async function signedUrl(path) {
+      if (!path) return null;
+
+      const { data, error } = await supabase.storage
+        .from(BUCKET_NAME)
+        .createSignedUrl(path, 60 * 60);
+
+      if (error) return null;
+      return data.signedUrl;
     }
 
     async function renderSamples(samples) {
@@ -320,26 +321,21 @@
         const card = document.createElement("div");
         card.className = "sample-card";
 
-        const title = document.createElement("div");
-        title.className = "sample-title";
-        title.innerHTML = `
-          <h3>${escapeHTML(sample.sample_id || "Untitled sample")}</h3>
-          <div class="status">${escapeHTML(displayDate(sample.created_at))}</div>
+        card.innerHTML = `
+          <div class="sample-title">
+            <h3>${escapeHTML(sample.sample_id || "Untitled sample")}</h3>
+            <div class="status">${escapeHTML(displayDate(sample.created_at))}</div>
+          </div>
+          <div class="meta">
+            <strong>Collector:</strong> ${escapeHTML(sample.collector || "")}<br>
+            <strong>Location:</strong> ${escapeHTML(sample.location || "")}<br>
+            <strong>Water Type:</strong> ${escapeHTML(sample.water_type || "")}<br>
+            <strong>Concentration:</strong> ${escapeHTML(sample.concentration || "")}<br>
+            <strong>Minutes Since Powder:</strong> ${escapeHTML(sample.minutes_since_powder || "")}<br>
+            <strong>GPS:</strong> ${escapeHTML(sample.latitude || "")}, ${escapeHTML(sample.longitude || "")}<br>
+            <strong>Notes:</strong> ${escapeHTML(sample.notes || "")}
+          </div>
         `;
-        card.appendChild(title);
-
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.innerHTML = `
-          <strong>Collector:</strong> ${escapeHTML(sample.collector || "")}<br>
-          <strong>Location:</strong> ${escapeHTML(sample.location || "")}<br>
-          <strong>Water Type:</strong> ${escapeHTML(sample.water_type || "")}<br>
-          <strong>Concentration:</strong> ${escapeHTML(sample.concentration || "")}<br>
-          <strong>Minutes Since Powder:</strong> ${escapeHTML(sample.minutes_since_powder || "")}<br>
-          <strong>GPS:</strong> ${escapeHTML(sample.latitude || "")}, ${escapeHTML(sample.longitude || "")}<br>
-          <strong>Notes:</strong> ${escapeHTML(sample.notes || "")}
-        `;
-        card.appendChild(meta);
 
         const grid = document.createElement("div");
         grid.className = "photo-grid";
@@ -379,6 +375,12 @@
         card.appendChild(grid);
         container.appendChild(card);
       }
+    }
+
+    function displayDate(value) {
+      if (!value) return "";
+      try { return new Date(value).toLocaleString(); }
+      catch { return value; }
     }
 
     function csvEscape(value) {
