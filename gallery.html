@@ -1,6 +1,4 @@
-from pathlib import Path
-
-html = r"""<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -204,6 +202,7 @@ html = r"""<!DOCTYPE html>
 
       <div class="actions">
         <button type="button" onclick="login()">Log In + Load Gallery</button>
+        <button type="button" class="secondary" onclick="forgotPassword()">Forgot Password</button>
         <button type="button" class="secondary" onclick="logout()">Log Out</button>
       </div>
 
@@ -277,6 +276,30 @@ html = r"""<!DOCTYPE html>
       authStatus.textContent = "Logged in as " + currentUser.email;
 
       await loadSamples();
+    }
+
+
+    async function forgotPassword() {
+      const email = document.getElementById("email").value.trim();
+      const authStatus = document.getElementById("authStatus");
+
+      if (!email) {
+        authStatus.textContent = "Enter your email address first, then tap Forgot Password.";
+        return;
+      }
+
+      authStatus.textContent = "Sending password reset email...";
+
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: "https://melinda-ecoteraasia.github.io/ecoexposure-webapp_v1/reset-password.html"
+      });
+
+      if (error) {
+        authStatus.textContent = "Password reset failed: " + error.message;
+        return;
+      }
+
+      authStatus.textContent = "Password reset email sent. Check your inbox/spam folder.";
     }
 
     async function logout() {
@@ -496,8 +519,3 @@ html = r"""<!DOCTYPE html>
   </script>
 </body>
 </html>
-"""
-
-out = Path("/mnt/data/gallery_fixed.html")
-out.write_text(html, encoding="utf-8")
-out.as_posix()
