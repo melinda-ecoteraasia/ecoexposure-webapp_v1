@@ -356,28 +356,26 @@
     }
 
 async function signUp() {
-
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
 
-  const { data, error } =
-      await supabaseClient.auth.signUp({ email, password });
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
 
   if (error) {
-      showToast("❌ " + error.message);
-      return;
+    document.getElementById("authStatus").textContent = `Sign-up error: ${error.message}`;
+    showToast("❌ " + error.message);
+    return;
   }
 
-  showToast(
-      "✅ Account created! Please check your email to confirm your account. Then return here and log in."
-  );
-
   document.getElementById("authStatus").textContent =
-      "Account created.";
+    "Account created. Check email if confirmation is required, then log in.";
+
+  showToast("✅ Account created! Please check your email to confirm your account. Then return here and log in.");
+
 
   await checkAuth();
 }
-    }
+    
 
     async function signIn() {
       const email = document.getElementById("email").value.trim();
@@ -685,6 +683,15 @@ async function signUp() {
       document.getElementById("saveStatus").textContent = "Draft cleared.";
     }
 
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.innerHTML = message;
+  toast.style.display = "block";
+
+  setTimeout(() => {
+    toast.style.display = "none";
+  }, 6000);
+}
     checkAuth();
 
 
