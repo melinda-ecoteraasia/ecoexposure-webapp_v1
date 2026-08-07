@@ -196,6 +196,66 @@
       text-decoration: none;
     }
 
+
+    .model-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .model-toggle-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      transform: scale(1.15);
+    }
+
+    .model-toggle-row label {
+      margin: 0;
+      font-weight: 700;
+    }
+
+    .model-card {
+      display: none;
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid #a7d6cf;
+      border-radius: 12px;
+      background: #f0fdfa;
+    }
+
+    .model-card h3 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      color: var(--accent-dark);
+    }
+
+    .model-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 14px;
+      font-size: 0.92rem;
+    }
+
+    .model-label {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .model-value {
+      font-weight: 700;
+    }
+
+    .model-dev-note {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .model-error {
+      color: var(--danger);
+    }
+
     @media (max-width: 640px) {
       .row, .actions {
         grid-template-columns: 1fr;
@@ -245,6 +305,8 @@
       <label for="waterType">Water Type</label>
       <select id="waterType">
         <option>Tap</option>
+        <option>Filtered</option>
+        <option>Bottled</option>
         <option>River</option>
         <option>Lake</option>
         <option>Bay</option>
@@ -272,6 +334,41 @@
 
       <label for="notes">Notes</label>
       <textarea id="notes" placeholder="Sample conditions, dilution, visual observations..."></textarea>
+    </section>
+
+    <section>
+      <h2>Development Model</h2>
+
+      <div class="model-toggle-row">
+        <input id="runModel" type="checkbox" />
+        <label for="runModel">Run EcoExposure development model after saving</label>
+      </div>
+
+      <div class="status" id="modelStatus">
+        Model OFF — sample will be collected normally.
+      </div>
+
+      <div class="model-card" id="modelResult">
+        <h3>EcoExposure Development Prediction</h3>
+
+        <div class="model-grid">
+          <div class="model-label">Water model</div>
+          <div class="model-value" id="predictionModel">—</div>
+
+          <div class="model-label">Predicted MP class</div>
+          <div class="model-value" id="predictionMP">—</div>
+
+          <div class="model-label">EcoExposure band</div>
+          <div class="model-value" id="predictionBand">—</div>
+
+          <div class="model-label">Confidence</div>
+          <div class="model-value" id="predictionConfidence">—</div>
+        </div>
+
+        <div class="model-dev-note">
+          Development output only. Sample data are saved before model inference runs.
+        </div>
+      </div>
     </section>
 
     <section>
@@ -332,6 +429,11 @@
     const SUPABASE_KEY = "sb_publishable_3M-2qrVCnjO9XfjsBCUf6g_l1wSuwVu";
     const STORAGE_BUCKET = "ecoexposure_images";
     const TABLE_NAME = "samples"; // Change to "samples" if that is what you named your table.
+
+    // Development inference endpoint.
+    // Leave blank until your Python inference service is deployed.
+    // Example later: "https://your-inference-service.example.com/predict"
+    const MODEL_API_URL = "";
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -499,6 +601,120 @@ async function signUp() {
       return path;
     }
 
+
+    function getModelForWaterType(waterType) {
+      const type = String(waterType || "").trim().toLowerCase();
+
+      if (["ocean", "brackish", "bay"].includes(type)) {
+        return "salt_mp_v1";
+      }
+
+      if (["tap", "filtered", "bottled"].includes(type)) {
+        return "filtered_mp_dev_v1";
+      }
+
+      return null;
+    }
+
+    function resetModelResult() {
+      document.getElementById("modelResult").style.display = "none";
+      document.getElementById("predictionModel").textContent = "—";
+      document.getElementById("predictionMP").textContent = "—";
+      document.getElementById("predictionBand").textContent = "—";
+      document.getElementById("predictionConfidence").textContent = "—";
+    }
+
+    async function runDevelopmentModel({ sampleID, waterType, topPhotoPath }) {
+      const modelStatus = document.getElementById("modelStatus");
+      const modelResult = document.getElementById("modelResult");
+      const predictionModel = document.getElementById("predictionModel");
+      const predictionMP = document.getElementById("predictionMP");
+      const predictionBand = document.getElementById("predictionBand");
+      const predictionConfidence = document.getElementById("predictionConfidence");
+
+      const modelName = getModelForWaterType(waterType);
+
+      if (!modelName) {
+        resetModelResult();
+        modelStatus.textContent =
+          `Sample saved. No development model is assigned to water type: ${waterType}.`;
+        return;
+      }
+
+      if (!topPhotoPath) {
+        resetModelResult();
+        modelStatus.textContent =
+          "Sample saved. Model was not run because no Top View photo was provided.";
+        return;
+      }
+
+      if (!MODEL_API_URL) {
+        resetModelResult();
+        modelStatus.textContent =
+          `Sample saved. ${modelName} selected, but MODEL_API_URL is not configured yet.`;
+        return;
+      }
+
+      modelStatus.textContent = `Running ${modelName}...`;
+
+      const { data: sessionData } = await supabaseClient.auth.getSession();
+      const accessToken = sessionData?.session?.access_token || "";
+
+      const response = await fetch(MODEL_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {})
+        },
+        body: JSON.stringify({
+          sample_id: sampleID,
+          water_type: waterType,
+          model_name: modelName,
+          top_photo_path: topPhotoPath,
+          storage_bucket: STORAGE_BUCKET
+        })
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(
+          `Inference failed (${response.status})${detail ? ": " + detail : ""}`
+        );
+      }
+
+      const result = await response.json();
+
+      const predictedMP =
+        result.predicted_mp ??
+        result.prediction ??
+        result.predicted_class ??
+        "—";
+
+      const band =
+        result.band ??
+        result.ecoexposure_band ??
+        result.ecoexposure_index ??
+        "—";
+
+      const confidence = Number(result.confidence);
+
+      predictionModel.textContent =
+        result.model_version || result.model_name || modelName;
+
+      predictionMP.textContent =
+        predictedMP === "—" ? "—" : `${predictedMP} MP/L`;
+
+      predictionBand.textContent = String(band);
+
+      predictionConfidence.textContent =
+        Number.isFinite(confidence)
+          ? `${Math.round(confidence * 100)}%`
+          : "—";
+
+      modelResult.style.display = "block";
+      modelStatus.textContent = "Development prediction complete.";
+    }
+
     async function saveEntry() {
       const status = document.getElementById("saveStatus");
       await checkAuth();
@@ -569,6 +785,26 @@ async function signUp() {
         updateSampleList();
         previewCSV();
         status.textContent = `✅ Saved to Supabase: ${sampleID}. Photos uploaded and database row inserted.`;
+
+        // Model inference is OPTIONAL and always runs AFTER the sample is safely saved.
+        const runModel = document.getElementById("runModel").checked;
+
+        if (runModel) {
+          try {
+            await runDevelopmentModel({
+              sampleID,
+              waterType: entry.water_type,
+              topPhotoPath: top_photo
+            });
+          } catch (modelError) {
+            console.error("Development model error:", modelError);
+            resetModelResult();
+            const modelStatus = document.getElementById("modelStatus");
+            modelStatus.textContent =
+              `Sample saved successfully. Model inference failed: ${modelError.message}`;
+            modelStatus.classList.add("model-error");
+          }
+        }
       } catch (err) {
         status.textContent = err.message;
       }
@@ -681,6 +917,11 @@ async function signUp() {
       longitude = "";
       document.getElementById("gpsStatus").textContent = "No GPS location captured yet.";
       document.getElementById("saveStatus").textContent = "Draft cleared.";
+      document.getElementById("runModel").checked = false;
+      document.getElementById("modelStatus").classList.remove("model-error");
+      document.getElementById("modelStatus").textContent =
+        "Model OFF — sample will be collected normally.";
+      resetModelResult();
     }
 
 function showToast(message) {
@@ -692,6 +933,33 @@ function showToast(message) {
     toast.style.display = "none";
   }, 6000);
 }
+    document.getElementById("runModel").addEventListener("change", function () {
+      const modelStatus = document.getElementById("modelStatus");
+      modelStatus.classList.remove("model-error");
+      resetModelResult();
+
+      if (this.checked) {
+        const waterType = document.getElementById("waterType").value;
+        const modelName = getModelForWaterType(waterType);
+
+        modelStatus.textContent = modelName
+          ? `Model ON — ${modelName} will run after the sample is saved.`
+          : `Model ON — no development model is assigned to ${waterType} yet.`;
+      } else {
+        modelStatus.textContent =
+          "Model OFF — sample will be collected normally.";
+      }
+    });
+
+    document.getElementById("waterType").addEventListener("change", function () {
+      if (!document.getElementById("runModel").checked) return;
+
+      const modelName = getModelForWaterType(this.value);
+      document.getElementById("modelStatus").textContent = modelName
+        ? `Model ON — ${modelName} will run after the sample is saved.`
+        : `Model ON — no development model is assigned to ${this.value} yet.`;
+    });
+
     checkAuth();
 
 
