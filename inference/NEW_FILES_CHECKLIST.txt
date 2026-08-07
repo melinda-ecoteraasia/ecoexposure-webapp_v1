@@ -1,0 +1,13 @@
+Upload these into your GitHub repo:
+
+1. inference/EcoExposure_Inference_Server.py
+2. inference/preprocessing.py
+3. inference/metrics.py
+4. inference/model_router.py
+5. inference/requirements.txt
+6. inference/models/filtered_rf_v1.joblib
+7. inference/models/salt_rf_v1.joblib
+8. inference/models/np_rf_v1.joblib
+
+Modify:
+- new-sample.html
